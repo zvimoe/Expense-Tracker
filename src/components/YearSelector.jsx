@@ -163,7 +163,7 @@ export default function YearSelector({ onSelectYear }) {
             />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">Finance Dashboard 2025</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Expense Tracker</h1>
         <p className="text-gray-500 text-sm mt-1">Select a year to view your transactions</p>
       </div>
 

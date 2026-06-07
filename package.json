@@ -1,7 +1,7 @@
 {
-  "name": "finance-dashboard-2025",
+  "name": "expense-tracker",
   "version": "1.0.0",
-  "description": "Finance Dashboard 2025 — offline desktop app for CSV financial data",
+  "description": "Expense Tracker — offline desktop app for CSV financial data",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c cyan,yellow \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
@@ -30,8 +30,8 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "com.finance-dashboard-2025.app",
-    "productName": "Finance Dashboard 2025",
+    "appId": "com.expense-tracker.app",
+    "productName": "Expense Tracker",
     "directories": {
       "output": "release"
     },

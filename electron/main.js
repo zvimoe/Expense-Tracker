@@ -38,7 +38,7 @@ function createWindow() {
     height: 860,
     minWidth: 1200,
     minHeight: 800,
-    title: 'Finance Dashboard 2025',
+    title: 'Expense Tracker',
     backgroundColor: '#f9fafb',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

@@ -1,4 +1,4 @@
-# Finance Dashboard 2025
+# Expense Tracker
 
 An offline-first Electron + React desktop app for visualising personal finances from CSV exports.
 
@@ -29,7 +29,7 @@ An offline-first Electron + React desktop app for visualising personal finances 
 ### Install
 
 ```bash
-cd finance-dashboard
+cd expense-tracker
 npm install
 ```
 
@@ -88,7 +88,7 @@ The parser auto-detects column names using an alias table, so you don't need to 
 ## Folder structure
 
 ```
-finance-dashboard/
+expense-tracker/
 ├── electron/
 │   ├── main.js       # BrowserWindow, IPC file-picker handler
 │   └── preload.js    # contextBridge — exposes window.electronAPI.openFile()
