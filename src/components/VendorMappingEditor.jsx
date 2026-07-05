@@ -698,7 +698,7 @@ export default function VendorMappingEditor({ mappings, onMappingsChange, rawTra
                     onDelete={() => handleDeleteGroup(oi)}
                   />
                 )
-              )}
+              })}
             </div>
           )}
 

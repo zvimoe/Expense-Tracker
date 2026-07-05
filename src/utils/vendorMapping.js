@@ -45,10 +45,12 @@ export function applyMappings(transactions, mappings) {
   return transactions.map((t) => {
     const m = lookup.get(t.vendor.toLowerCase());
     if (!m) return t;
+    const renamedVendor = m.mappedVendor || t.vendor;
     return {
       ...t,
-      vendor:   m.mappedVendor     || t.vendor,
-      category: m.categoryOverride || t.category,
+      vendor:         renamedVendor,
+      originalVendor: renamedVendor !== t.vendor ? t.vendor : undefined,
+      category:       m.categoryOverride || t.category,
     };
   });
 }

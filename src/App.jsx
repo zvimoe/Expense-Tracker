@@ -9,8 +9,8 @@ import { parseCSV, mergeAndSort } from './utils/parseCSV.js';
 import { applyMappings } from './utils/vendorMapping.js';
 
 const TABS = [
-  { id: 0, label: 'Vendors' },
-  { id: 1, label: 'Categories' },
+  { id: 0, label: 'Overview' },
+  { id: 1, label: 'Vendors' },
   { id: 2, label: 'All Transactions' },
 ];
 
@@ -205,14 +205,15 @@ export default function App() {
       {/* Main content */}
       <main className="flex-1 overflow-auto p-6">
         {activeTab === 0 && (
-          <VendorTable
+          <CategorySummary
             transactions={transactions}
             mappings={mappings}
             onMappingsChange={setMappings}
+            year={selectedYear}
           />
         )}
         {activeTab === 1 && (
-          <CategorySummary
+          <VendorTable
             transactions={transactions}
             mappings={mappings}
             onMappingsChange={setMappings}

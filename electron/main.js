@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path  = require('path');
 const fs    = require('fs');
 const iconv = require('iconv-lite');
+const XLSX  = require('xlsx');
 
 /**
  * Read a CSV file with automatic encoding detection.
@@ -14,6 +15,95 @@ function readCSVSmart(filePath) {
   const utf8 = buf.toString('utf-8');
   if (!utf8.includes('\uFFFD')) return utf8;          // valid UTF-8, use as-is
   return iconv.decode(buf, 'windows-1255');           // fall back to Windows-1255
+}
+
+/**
+ * Convert a Bank Hapoalim-style Israeli bank Excel report to a CSV string
+ * compatible with ILBankParser.
+ *
+ * The Excel layout Bank Hapoalim exports:
+ *   Rows 0–3 : account metadata
+ *   Row  4   : column headers (Hebrew)
+ *   Rows 5+  : transactions — dates are stored as Excel serial numbers
+ *
+ * Outputs a CSV with columns: תאריך, תיאור פעולה, חובה, זכות
+ * using dd/mm/yyyy dates so ILBankParser can parse them normally.
+ */
+function xlsxILBankToCSV(filePath) {
+  // raw:true keeps numbers as numbers (avoids cellDates timezone shifting)
+  const wb   = XLSX.readFile(filePath);
+  const ws   = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+
+  // Locate the header row by scanning for Hebrew banking keywords
+  const MARKERS = ['תיאור', 'חובה', 'זכות'];
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const flat = rows[i].map(String).join('');
+    if (MARKERS.filter(m => flat.includes(m)).length >= 2) { headerIdx = i; break; }
+  }
+  if (headerIdx === -1) throw new Error('Could not find header row — make sure this is a Bank Hapoalim Excel export');
+
+  const headers = rows[headerIdx].map(String);
+
+  const findCol = (...aliases) => {
+    for (const a of aliases) {
+      const i = headers.findIndex(h => h.trim().includes(a));
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+
+  const dateCol   = findCol('תאריך ערך', 'תאריך פעולה', 'תאריך');
+  const vendorCol = findCol('תיאור', 'פירוט', 'שם');
+  const debitCol  = findCol('חובה', 'חיוב');
+  const creditCol = findCol('זכות', 'הפקדה');
+
+  if (dateCol === -1 || vendorCol === -1)
+    throw new Error(`Required columns not found. Headers detected: ${headers.filter(Boolean).join(', ')}`);
+
+  // Convert Excel serial number → dd/mm/yyyy (UTC, no timezone shift)
+  const serialToDate = (n) => {
+    const ms   = (n - 25569) * 86400 * 1000;
+    const dt   = new Date(ms);
+    const d    = String(dt.getUTCDate()).padStart(2, '0');
+    const m    = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    return `${d}/${m}/${dt.getUTCFullYear()}`;
+  };
+
+  const toDate = (val) => {
+    if (val === '' || val == null) return '';
+    if (typeof val === 'number' && val > 40000) return serialToDate(val); // plausible Excel date
+    const s = String(val).trim();
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)) return s; // already dd/mm/yyyy
+    return '';
+  };
+
+  const csvEscape = (v) => {
+    const s = String(v ?? '');
+    return (s.includes(',') || s.includes('"') || s.includes('\n'))
+      ? '"' + s.replace(/"/g, '""') + '"'
+      : s;
+  };
+
+  const out = [['תאריך', 'תיאור פעולה', 'חובה', 'זכות']];
+
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.every(c => c === '' || c == null)) continue;
+
+    const date   = toDate(row[dateCol]);
+    const vendor = String(row[vendorCol] ?? '').trim();
+    const debit  = debitCol  !== -1 ? (row[debitCol]  ?? '') : '';
+    const credit = creditCol !== -1 ? (row[creditCol] ?? '') : '';
+
+    if (!date || !vendor) continue;
+    out.push([date, vendor, debit, credit]);
+  }
+
+  if (out.length < 2) throw new Error('No transaction rows found in the Excel file');
+
+  return out.map(r => r.map(csvEscape).join(',')).join('\r\n');
 }
 
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
@@ -132,22 +222,32 @@ ipcMain.handle('data:loadYear', (_, year) => {
   };
 });
 
-// Open a file-picker, copy the chosen CSV into the year folder, return its content
+// Open a file-picker, copy the chosen CSV (or convert xlsx) into the year folder
 ipcMain.handle('data:pickFile', async (_, { year, type }) => {
   const labels = {
-    bank:      'Bank Transactions (US)',
-    credit:    'Credit Card Transactions (US)',
+    bank:        'Bank Transactions (US)',
+    credit:      'Credit Card Transactions (US)',
     'il-bank':   'Israeli Bank Transactions',
     'il-credit': 'Israeli Credit Card Transactions',
-    mapping:   'Vendor Mapping Override',
+    mapping:     'Vendor Mapping Override',
   };
+
+  // IL bank also accepts xlsx exports from Bank Hapoalim etc.
+  const isILBank = type === 'il-bank';
+  const filters  = isILBank
+    ? [
+        { name: 'Bank files', extensions: ['csv', 'CSV', 'xlsx', 'XLSX'] },
+        { name: 'All Files', extensions: ['*'] },
+      ]
+    : [
+        { name: 'CSV Files', extensions: ['csv', 'CSV'] },
+        { name: 'All Files', extensions: ['*'] },
+      ];
+
   const { canceled, filePaths } = await dialog.showOpenDialog({
     title: `Select ${labels[type] || 'CSV'} file`,
     properties: ['openFile'],
-    filters: [
-      { name: 'CSV Files', extensions: ['csv', 'CSV'] },
-      { name: 'All Files', extensions: ['*'] },
-    ],
+    filters,
   });
 
   if (canceled || !filePaths.length) return null;
@@ -160,13 +260,24 @@ ipcMain.handle('data:pickFile', async (_, { year, type }) => {
     type === 'il-bank'   ? 'il-bank.csv' :
     type === 'il-credit' ? 'il-credit.csv' :
     'vendor-mapping-override.csv';
-  const dest     = path.join(yearDir(year), destName);
+  const dest = path.join(yearDir(year), destName);
 
   ensureDir(yearDir(year));
-  fs.copyFileSync(src, dest);
 
-  // Return content so the renderer can parse it without a second read
-  const content = readCSVSmart(dest);
+  let content;
+  if (isILBank && src.toLowerCase().endsWith('.xlsx')) {
+    // Convert the Excel report to CSV and save it
+    try {
+      content = xlsxILBankToCSV(src);
+    } catch (err) {
+      throw new Error(`Excel conversion failed: ${err.message}`);
+    }
+    fs.writeFileSync(dest, content, 'utf-8');
+  } else {
+    fs.copyFileSync(src, dest);
+    content = readCSVSmart(dest);
+  }
+
   return { fileName, content };
 });
 

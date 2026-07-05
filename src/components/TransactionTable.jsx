@@ -249,6 +249,7 @@ export default function TransactionTable({ transactions }) {
               <tr>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600 whitespace-nowrap">Date</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Vendor</th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-600">Description</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Category</th>
                 <th className="px-4 py-3 text-right font-semibold text-gray-600">Amount</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Source</th>
@@ -257,7 +258,7 @@ export default function TransactionTable({ transactions }) {
             <tbody className="divide-y divide-gray-100">
               {pageData.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">
+                  <td colSpan={6} className="px-4 py-12 text-center text-gray-400 text-sm">
                     No transactions match your filters.
                   </td>
                 </tr>
@@ -267,6 +268,11 @@ export default function TransactionTable({ transactions }) {
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{t.date || '—'}</td>
                     <td className="px-4 py-3 font-medium text-gray-900 max-w-xs truncate" title={t.vendor}>
                       {t.vendor}
+                    </td>
+                    <td className="px-4 py-3 max-w-[200px] truncate" title={t.originalVendor}>
+                      {t.originalVendor
+                        ? <span className="text-gray-500 text-xs">{t.originalVendor}</span>
+                        : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       <span className="inline-block max-w-[140px] truncate" title={t.category}>
