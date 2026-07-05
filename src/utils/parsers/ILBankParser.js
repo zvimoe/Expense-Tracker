@@ -76,6 +76,7 @@ export class ILBankParser extends BaseParser {
     return {
       date,
       vendor,
+      originalVendor: vendor,
       amount: amountUsd,
       amountLocal: amountIls,
       category: 'IL Bank',

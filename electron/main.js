@@ -213,12 +213,19 @@ ipcMain.handle('data:loadYear', (_, year) => {
     if (fs.existsSync(mp)) mappings = JSON.parse(fs.readFileSync(mp, 'utf-8'));
   } catch {}
 
+  let transactionOverrides = [];
+  const to = path.join(d, 'transaction-overrides.json');
+  try {
+    if (fs.existsSync(to)) transactionOverrides = JSON.parse(fs.readFileSync(to, 'utf-8'));
+  } catch {}
+
   return {
     bankContent:     readCSV('bank.csv'),
     creditContent:   readCSV('credit.csv'),
     ilBankContent:   readCSV('il-bank.csv'),
     ilCreditContent: readCSV('il-credit.csv'),
     mappings,
+    transactionOverrides,
   };
 });
 
@@ -286,6 +293,13 @@ ipcMain.handle('data:saveMappings', (_, { year, mappings }) => {
   const d = yearDir(year);
   ensureDir(d);
   fs.writeFileSync(path.join(d, 'mappings.json'), JSON.stringify(mappings, null, 2), 'utf-8');
+  return true;
+});
+
+ipcMain.handle('data:saveTransactionOverrides', (_, { year, transactionOverrides }) => {
+  const d = yearDir(year);
+  ensureDir(d);
+  fs.writeFileSync(path.join(d, 'transaction-overrides.json'), JSON.stringify(transactionOverrides, null, 2), 'utf-8');
   return true;
 });
 

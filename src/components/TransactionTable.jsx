@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import TransactionOverrideEditor from './TransactionOverrideEditor.jsx';
 
 const SOURCE_LABELS = {
   'bank':      { label: 'US Bank',   cls: 'bg-blue-100 text-blue-700' },
@@ -35,9 +36,10 @@ const EMPTY_FILTERS = {
   maxAmount: '',
 };
 
-export default function TransactionTable({ transactions }) {
-  const [page,    setPage]    = useState(1);
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+export default function TransactionTable({ transactions, mappings = [], onMappingsChange, transactionOverrides = [], onTransactionOverridesChange }) {
+  const [page,        setPage]        = useState(1);
+  const [filters,     setFilters]     = useState(EMPTY_FILTERS);
+  const [overrideTarget, setOverrideTarget] = useState(null);
 
   const setFilter = (key, val) => {
     setFilters((prev) => ({ ...prev, [key]: val }));
@@ -52,8 +54,11 @@ export default function TransactionTable({ transactions }) {
   // Collect unique categories for dropdown
   const categories = useMemo(() => {
     const s = new Set(transactions.map((t) => t.category));
+    for (const m of mappings) {
+      if (m.categoryOverride) s.add(m.categoryOverride);
+    }
     return Array.from(s).sort();
-  }, [transactions]);
+  }, [transactions, mappings]);
 
   // Apply filters
   const filtered = useMemo(() => {
@@ -266,8 +271,25 @@ export default function TransactionTable({ transactions }) {
                 pageData.map((t, i) => (
                   <tr key={i} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{t.date || '—'}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900 max-w-xs truncate" title={t.vendor}>
-                      {t.vendor}
+                    <td className="px-4 py-3 font-medium text-gray-900 max-w-xs" title={t.vendor}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate">{t.vendor}</span>
+                        {t.originalVendor && t.originalVendor !== t.vendor && (
+                          <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            from {t.originalVendor}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setOverrideTarget(t)}
+                          className="ml-1 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Edit transaction override"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                     <td className="px-4 py-3 max-w-[200px] truncate" title={t.originalVendor}>
                       {t.originalVendor
@@ -306,6 +328,16 @@ export default function TransactionTable({ transactions }) {
           </table>
         </div>
       </div>
+
+      {overrideTarget && (
+        <TransactionOverrideEditor
+          transactions={transactions}
+          overrides={transactionOverrides}
+          onOverridesChange={onTransactionOverridesChange}
+          onClose={() => setOverrideTarget(null)}
+          initialTransaction={overrideTarget}
+        />
+      )}
 
       {/* ── Pagination ── */}
       {totalPages > 1 && (

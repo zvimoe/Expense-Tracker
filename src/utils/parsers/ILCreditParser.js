@@ -66,6 +66,7 @@ export class ILCreditParser extends BaseParser {
     return {
       date,
       vendor,
+      originalVendor: vendor,
       amount: amountUsd,       // USD – used for all aggregations and charts
       amountLocal: amountIls,  // original ILS amount
       category: 'IL Credit',

@@ -137,6 +137,14 @@ export class BaseParser {
 
       const transactions = result.data
         .map((row) => this.normalizeRow(row, cols, source, currency))
+        .map((t, index) => {
+          if (!t) return null;
+          return {
+            ...t,
+            id: t.id ?? `${source}-${index + 1}-${t.date || ''}-${t.vendor || ''}`,
+            originalVendor: t.originalVendor ?? t.vendor,
+          };
+        })
         .filter((t) => t && (t.vendor || t.amount));
 
       resolve(transactions);

@@ -5,8 +5,9 @@ import CategorySummary from './components/CategorySummary.jsx';
 import TransactionTable from './components/TransactionTable.jsx';
 import VendorMappingEditor from './components/VendorMappingEditor.jsx';
 import YearFilesEditor from './components/YearFilesEditor.jsx';
+import TransactionOverrideEditor from './components/TransactionOverrideEditor.jsx';
 import { parseCSV, mergeAndSort } from './utils/parseCSV.js';
-import { applyMappings } from './utils/vendorMapping.js';
+import { applyMappings, applyTransactionOverrides } from './utils/vendorMapping.js';
 
 const TABS = [
   { id: 0, label: 'Overview' },
@@ -18,19 +19,25 @@ export default function App() {
   const [selectedYear,     setSelectedYear]     = useState(null);
   const [rawTransactions,  setRawTransactions]  = useState(null);
   const [mappings,         setMappings]         = useState([]);
+  const [transactionOverrides, setTransactionOverrides] = useState([]);
   const [activeTab,        setActiveTab]        = useState(0);
   const [showMappings,     setShowMappings]     = useState(false);
   const [showFilesEditor,  setShowFilesEditor]  = useState(false);
+  const [showTransactionOverrides, setShowTransactionOverrides] = useState(false);
+  const [transactionOverrideTarget, setTransactionOverrideTarget] = useState(null);
   const [yearInfo,         setYearInfo]         = useState(null);
   const [loadError,        setLoadError]        = useState(null);
   const [loadingYear,      setLoadingYear]      = useState(false);
 
   const mappingsInitialized = useRef(false);
+  const overridesInitialized = useRef(false);
 
-  // Derived: raw transactions with all mapping rules applied
+  // Derived: raw transactions with mapping rules and transaction-only overrides applied
   const transactions = useMemo(
-    () => rawTransactions ? applyMappings(rawTransactions, mappings) : null,
-    [rawTransactions, mappings]
+    () => rawTransactions
+      ? applyTransactionOverrides(applyMappings(rawTransactions, mappings), transactionOverrides)
+      : null,
+    [rawTransactions, mappings, transactionOverrides]
   );
 
   // Auto-save mappings whenever they change (but not on first render)
@@ -40,17 +47,25 @@ export default function App() {
     window.electronAPI.saveMappings(selectedYear, mappings).catch(() => {});
   }, [mappings, selectedYear]);
 
+  useEffect(() => {
+    if (!selectedYear) return;
+    if (!overridesInitialized.current) { overridesInitialized.current = true; return; }
+    window.electronAPI.saveTransactionOverrides(selectedYear, transactionOverrides).catch(() => {});
+  }, [transactionOverrides, selectedYear]);
+
   // Load a year's data from disk
   const handleSelectYear = async (year) => {
     setLoadError(null);
     setLoadingYear(true);
     mappingsInitialized.current = false;
+    overridesInitialized.current = false;
 
     try {
       const {
         bankContent, creditContent,
         ilBankContent, ilCreditContent,
         mappings: savedMappings,
+        transactionOverrides: savedTransactionOverrides,
       } = await window.electronAPI.loadYear(year);
 
       const [bankTxns, creditTxns, ilBankTxns, ilCreditTxns] = await Promise.all([
@@ -68,6 +83,7 @@ export default function App() {
       setSelectedYear(String(year));
       setRawTransactions(merged);
       setMappings(savedMappings || []);
+      setTransactionOverrides(savedTransactionOverrides || []);
       setActiveTab(0);
     } catch (err) {
       setLoadError(err.message);
@@ -80,8 +96,17 @@ export default function App() {
     setSelectedYear(null);
     setRawTransactions(null);
     setMappings([]);
+    setTransactionOverrides([]);
+    setShowTransactionOverrides(false);
+    setTransactionOverrideTarget(null);
     setLoadError(null);
     mappingsInitialized.current = false;
+    overridesInitialized.current = false;
+  };
+
+  const handleOpenTransactionOverrides = () => {
+    setTransactionOverrideTarget(transactions?.[0] || null);
+    setShowTransactionOverrides(true);
   };
 
   // After editing files in the year editor, reload the year data
@@ -156,6 +181,23 @@ export default function App() {
             Edit Files
           </button>
 
+          {/* Transaction overrides */}
+          <button
+            onClick={handleOpenTransactionOverrides}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-600 relative"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            Transaction Overrides
+            {transactionOverrides.length > 0 && (
+              <span className="ml-0.5 bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                {transactionOverrides.length}
+              </span>
+            )}
+          </button>
+
           {/* Vendor mappings */}
           <button
             onClick={() => setShowMappings(true)}
@@ -219,7 +261,15 @@ export default function App() {
             onMappingsChange={setMappings}
           />
         )}
-        {activeTab === 2 && <TransactionTable transactions={transactions} />}
+        {activeTab === 2 && (
+          <TransactionTable
+            transactions={transactions}
+            mappings={mappings}
+            onMappingsChange={setMappings}
+            transactionOverrides={transactionOverrides}
+            onTransactionOverridesChange={setTransactionOverrides}
+          />
+        )}
       </main>
 
       {/* Modals */}
@@ -229,6 +279,19 @@ export default function App() {
           onMappingsChange={setMappings}
           rawTransactions={rawTransactions}
           onClose={() => setShowMappings(false)}
+        />
+      )}
+
+      {showTransactionOverrides && (
+        <TransactionOverrideEditor
+          transactions={transactions || []}
+          overrides={transactionOverrides}
+          onOverridesChange={setTransactionOverrides}
+          onClose={() => {
+            setShowTransactionOverrides(false);
+            setTransactionOverrideTarget(null);
+          }}
+          initialTransaction={transactionOverrideTarget}
         />
       )}
 

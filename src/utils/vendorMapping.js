@@ -1,5 +1,20 @@
 import Papa from 'papaparse';
 
+export function makeTransactionKey(transaction) {
+  if (!transaction) return '';
+  const parts = [
+    transaction.id ?? '',
+    transaction.transactionKey ?? '',
+    transaction.source ?? '',
+    transaction.date ?? '',
+    transaction.originalVendor ?? transaction.vendor ?? '',
+    transaction.amount ?? '',
+    transaction.category ?? '',
+    transaction.currency ?? '',
+  ];
+  return parts.filter((part) => part !== '' && part != null).join('::');
+}
+
 /**
  * Parse a vendor-mapping-override CSV.
  *
@@ -43,14 +58,36 @@ export function applyMappings(transactions, mappings) {
   }
 
   return transactions.map((t) => {
-    const m = lookup.get(t.vendor.toLowerCase());
+    const sourceVendor = (t.originalVendor || t.vendor || '').toLowerCase();
+    const m = lookup.get(sourceVendor) || lookup.get(t.vendor.toLowerCase());
     if (!m) return t;
     const renamedVendor = m.mappedVendor || t.vendor;
     return {
       ...t,
       vendor:         renamedVendor,
-      originalVendor: renamedVendor !== t.vendor ? t.vendor : undefined,
+      originalVendor: renamedVendor !== t.vendor ? (t.originalVendor || t.vendor) : t.originalVendor,
       category:       m.categoryOverride || t.category,
+    };
+  });
+}
+
+export function applyTransactionOverrides(transactions, overrides = []) {
+  if (!overrides || overrides.length === 0) return transactions;
+
+  const byKey = new Map(overrides.map((entry) => [entry.transactionKey, entry]));
+
+  return transactions.map((transaction) => {
+    const key = makeTransactionKey(transaction);
+    const override = byKey.get(key);
+    if (!override) return transaction;
+
+    const vendorOverride = (override.vendorOverride || '').trim();
+    const categoryOverride = (override.categoryOverride || '').trim();
+
+    return {
+      ...transaction,
+      vendor: vendorOverride || transaction.vendor,
+      category: categoryOverride || transaction.category,
     };
   });
 }

@@ -69,6 +69,6 @@ export class USParser extends BaseParser {
       amount = -this.parseAmount(row[cols.credit]);
     }
 
-    return { date, vendor, amount, category, source, currency };
+    return { date, vendor, originalVendor: vendor, amount, category, source, currency };
   }
 }

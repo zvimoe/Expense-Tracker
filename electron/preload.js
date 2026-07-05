@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Persists the mappings array for a year to disk. */
   saveMappings: (year, mappings) => ipcRenderer.invoke('data:saveMappings', { year, mappings }),
 
+  /** Persists transaction-only overrides for a year to disk. */
+  saveTransactionOverrides: (year, transactionOverrides) => ipcRenderer.invoke('data:saveTransactionOverrides', { year, transactionOverrides }),
+
   // ── Generic file dialogs (used by mapping editor CSV export) ───────────
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   saveFile: (content, defaultName) => ipcRenderer.invoke('dialog:saveFile', { content, defaultName }),
