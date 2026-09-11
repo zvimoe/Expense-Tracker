@@ -17,6 +17,10 @@ release/
 build/
 *.unpackedAsarFiles/
 
+# Personal financial data / exported reports
+*.xlsx
+*.xls
+
 # OS
 .DS_Store
 Thumbs.db
