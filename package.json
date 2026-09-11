@@ -7,6 +7,7 @@
     "dev": "concurrently -k -n vite,electron -c cyan,yellow \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build": "vite build",
     "dist": "npm run build && electron-builder",
+    "icon": "node scripts/make-icon.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -43,7 +44,16 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "public/icon.ico"
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Expense Tracker",
+      "runAfterFinish": true
     },
     "mac": {
       "target": "dmg"
