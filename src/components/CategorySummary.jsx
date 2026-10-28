@@ -2,7 +2,9 @@ import React, { useState, useMemo, useRef } from 'react';
 import { Doughnut } from 'react-chartjs-2';
 import * as XLSX from 'xlsx';
 import { COLORS } from '../utils/colors.js';
+import { isExpense, isIncome, transferSummary } from '../utils/categories.js';
 import VendorDrilldown from './VendorDrilldown.jsx';
+import { SOURCE_OPTS } from '../utils/sources.js';
 
 const fmt = (n) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
@@ -38,13 +40,6 @@ function exportPnL(expenseCategories, expenseGrandTotal, incomeVendors, incomeGr
   XLSX.utils.book_append_sheet(wb, ws, 'P&L');
   XLSX.writeFile(wb, `PnL-Report${year ? `-${year}` : ''}.xlsx`);
 }
-
-const SOURCE_OPTS = [
-  { value: 'bank',      label: 'Bank' },
-  { value: 'credit',    label: 'Credit' },
-  { value: 'il-bank',   label: 'IL Bank' },
-  { value: 'il-credit', label: 'IL Credit' },
-];
 
 /* ── Expenses panel ─────────────────────────────────────────────────────── */
 function ExpensesPanel({ categories, grandTotal, filteredTxns, mappings, onMappingsChange, allCategories }) {
@@ -176,7 +171,7 @@ function IncomePanel({ filteredTxns, expenseCategories, expenseGrandTotal }) {
   const vendors = useMemo(() => {
     const map = new Map();
     for (const t of filteredTxns) {
-      if (t.category?.trim().toLowerCase() !== 'income') continue;
+      if (!isIncome(t)) continue;
       const key = (t.vendor || 'Unknown').toLowerCase();
       if (!map.has(key)) map.set(key, { vendor: t.vendor || 'Unknown', received: 0, paid: 0, count: 0 });
       const e = map.get(key);
@@ -303,8 +298,9 @@ export default function CategorySummary({ transactions, mappings = [], onMapping
   const expenseCategories = useMemo(() => {
     const map = new Map();
     for (const t of filteredTxns) {
+      // Skips Income and credit-card payments — see utils/categories.js
+      if (!isExpense(t)) continue;
       const cat = t.category || 'Uncategorized';
-      if (cat.trim().toLowerCase() === 'income') continue;
       if (!map.has(cat)) map.set(cat, { category: cat, paid: 0, received: 0, count: 0 });
       const e = map.get(cat);
       if (t.amount >= 0) e.paid     += t.amount;
@@ -342,6 +338,9 @@ export default function CategorySummary({ transactions, mappings = [], onMapping
     () => incomeVendors.reduce((s, v) => s + v.net, 0),
     [incomeVendors]
   );
+
+  // Card payments are left out of the figures above; show what that came to.
+  const transfers = useMemo(() => transferSummary(filteredTxns), [filteredTxns]);
 
   return (
     <div className="h-full flex flex-col gap-4">
@@ -382,7 +381,16 @@ export default function CategorySummary({ transactions, mappings = [], onMapping
           )}
         </div>
 
-        {/* Export button */}
+        <div className="flex items-center">
+        {/* Excluded card payments + export */}
+        {transfers.count > 0 && (
+          <span
+            className="text-[11px] text-gray-400 mr-3"
+            title="Paying a card bill is not spending — the card statement already itemises the purchases"
+          >
+            Excludes {transfers.count} card payment{transfers.count !== 1 ? 's' : ''} ({fmt(transfers.total)})
+          </span>
+        )}
         <button
           onClick={() => exportPnL(expenseCategories, expenseGrandTotal, incomeVendors, incomeGrandTotal, year)}
           disabled={expenseCategories.length === 0 && incomeVendors.length === 0}
@@ -394,6 +402,7 @@ export default function CategorySummary({ transactions, mappings = [], onMapping
           </svg>
           Export to P&amp;L Report
         </button>
+        </div>
       </div>
 
       {/* Split layout — grows to fill remaining height */}

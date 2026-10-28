@@ -1,17 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import TransactionOverrideEditor from './TransactionOverrideEditor.jsx';
-
-const SOURCE_LABELS = {
-  'bank':      { label: 'US Bank',   cls: 'bg-blue-100 text-blue-700' },
-  'credit':    { label: 'US Credit', cls: 'bg-violet-100 text-violet-700' },
-  'il-bank':   { label: 'IL Bank',   cls: 'bg-amber-100 text-amber-700' },
-  'il-credit': { label: 'IL Credit', cls: 'bg-rose-100 text-rose-700' },
-};
+import { toDayKey } from '../utils/dates.js';
+import { sourceInfo, SOURCE_OPTS } from '../utils/sources.js';
 
 function SourceBadge({ source }) {
-  const s = SOURCE_LABELS[source] ?? { label: source, cls: 'bg-gray-100 text-gray-600' };
+  const s = sourceInfo(source);
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${s.cls}`}>
+    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${s.badge}`}>
       {s.label}
     </span>
   );
@@ -36,10 +31,19 @@ const EMPTY_FILTERS = {
   maxAmount: '',
 };
 
-export default function TransactionTable({ transactions, mappings = [], onMappingsChange, transactionOverrides = [], onTransactionOverridesChange }) {
+export default function TransactionTable({ transactions, mappings = [], onMappingsChange, transactionOverrides = [], onTransactionOverridesChange, incomingFilters = null }) {
   const [page,        setPage]        = useState(1);
-  const [filters,     setFilters]     = useState(EMPTY_FILTERS);
+  const [filters,     setFilters]     = useState(() => ({ ...EMPTY_FILTERS, ...(incomingFilters || {}) }));
   const [overrideTarget, setOverrideTarget] = useState(null);
+
+  // A drill-down from another tab arrives as a fresh object; apply it once.
+  const appliedFilters = useRef(incomingFilters);
+  useEffect(() => {
+    if (!incomingFilters || incomingFilters === appliedFilters.current) return;
+    appliedFilters.current = incomingFilters;
+    setFilters({ ...EMPTY_FILTERS, ...incomingFilters });
+    setPage(1);
+  }, [incomingFilters]);
 
   const setFilter = (key, val) => {
     setFilters((prev) => ({ ...prev, [key]: val }));
@@ -62,18 +66,20 @@ export default function TransactionTable({ transactions, mappings = [], onMappin
 
   // Apply filters
   const filtered = useMemo(() => {
+    // Compare dates as YYYYMMDD integers. Parsing MM/DD/YYYY and YYYY-MM-DD
+    // with `new Date` mixes local and UTC midnight, which drops transactions
+    // falling on the first day of the range in timezones east of UTC.
+    const fromKey = toDayKey(filters.dateFrom);
+    const toKey   = toDayKey(filters.dateTo);
+
     return transactions.filter((t) => {
       if (filters.vendor && !t.vendor.toLowerCase().includes(filters.vendor.toLowerCase())) return false;
-      // Date range — compare ISO strings when both dates are valid
-      if (filters.dateFrom) {
-        const txDate   = new Date(t.date);
-        const fromDate = new Date(filters.dateFrom);
-        if (!isNaN(txDate) && !isNaN(fromDate) && txDate < fromDate) return false;
-      }
-      if (filters.dateTo) {
-        const txDate = new Date(t.date);
-        const toDate = new Date(filters.dateTo);
-        if (!isNaN(txDate) && !isNaN(toDate) && txDate > toDate) return false;
+      if (fromKey != null || toKey != null) {
+        const txKey = toDayKey(t.date);
+        if (txKey != null) {
+          if (fromKey != null && txKey < fromKey) return false;
+          if (toKey   != null && txKey > toKey)   return false;
+        }
       }
       if (filters.category && t.category !== filters.category) return false;
       if (filters.source !== 'all' && t.source !== filters.source)  return false;
@@ -100,6 +106,15 @@ export default function TransactionTable({ transactions, mappings = [], onMappin
     () => filtered.reduce((s, t) => s + (t.amount || 0), 0),
     [filtered]
   );
+
+  // Only the Israeli parsers keep the pre-conversion shekel figure, so a
+  // shekel total is meaningful exactly when every filtered row carries one.
+  // A mixed US/Israeli selection has nothing to add up, so it stays hidden.
+  const filteredSumIls = useMemo(() => {
+    if (filtered.length === 0) return null;
+    if (!filtered.every((t) => t.amountLocal != null)) return null;
+    return filtered.reduce((s, t) => s + (t.amountLocal || 0), 0);
+  }, [filtered]);
 
   return (
     <div className="space-y-4">
@@ -164,13 +179,7 @@ export default function TransactionTable({ transactions, mappings = [], onMappin
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Source</label>
             <div className="flex rounded-lg border border-gray-300 overflow-hidden text-sm">
-              {[
-                { value: 'all',       label: 'All' },
-                { value: 'bank',      label: 'US Bank' },
-                { value: 'credit',    label: 'US Credit' },
-                { value: 'il-bank',   label: 'IL Bank' },
-                { value: 'il-credit', label: 'IL Credit' },
-              ].map((s) => (
+              {[{ value: 'all', label: 'All' }, ...SOURCE_OPTS].map((s) => (
                 <button
                   key={s.value}
                   onClick={() => setFilter('source', s.value)}
@@ -239,6 +248,14 @@ export default function TransactionTable({ transactions, mappings = [], onMappin
             <span className={`font-semibold ${filteredSum < 0 ? 'text-emerald-600' : 'text-gray-700'}`}>
               {filteredSum < 0 ? '+' : ''}{fmt(Math.abs(filteredSum))}
             </span>
+            {filteredSumIls !== null && (
+              <span title="Original shekel amounts, before conversion to USD">
+                {' / '}
+                <span className={`font-semibold ${filteredSumIls < 0 ? 'text-emerald-600' : 'text-gray-700'}`}>
+                  {filteredSumIls < 0 ? '+' : ''}{fmt(Math.abs(filteredSumIls), 'ILS')}
+                </span>
+              </span>
+            )}
           </span>
         </span>
         {totalPages > 1 && (

@@ -17,7 +17,10 @@ import { ilsToUsd } from '../exchangeRates.js';
 
 const DATE_ALIASES   = ['date', 'transaction date', 'תאריך עסקה', 'תאריך רכישה', 'תאריך'];
 const VENDOR_ALIASES = ['vendor', 'merchant', 'vendor name', 'שם בית עסק', 'בית עסק', 'תיאור', 'שם עסק'];
-const AMOUNT_ALIASES = ['amount in ils', 'amount', 'סכום בש"ח', 'סכום בשקלים', 'סכום', 'סכום עסקה'];
+// "סכום חיוב" (the amount actually charged, always in shekels) is preferred
+// over "סכום עסקה" (the amount in the transaction's own currency) — otherwise
+// a purchase made in dollars would be counted as if it were shekels.
+const AMOUNT_ALIASES = ['סכום חיוב', 'amount in ils', 'סכום בש"ח', 'סכום בשקלים', 'amount', 'סכום עסקה', 'סכום'];
 const TYPE_ALIASES   = ['transaction type', 'type', 'סוג עסקה', 'סוג', 'אופן עסקה'];
 
 const REFUND_TYPES = ['זיכוי', 'החזר', 'ביטול', 'credit', 'refund', 'cancel'];

@@ -1,13 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import YearFilesEditor from './YearFilesEditor.jsx';
+import { SOURCES, SOURCE_TYPES } from '../utils/sources.js';
 
-function FileStatus({ label, icon, present }) {
+/** A year can be opened as soon as ANY source has at least one file. */
+const fileCount = (info, type) => info?.files?.[type]?.length ?? 0;
+const hasAnyFiles = (info) => SOURCE_TYPES.some((t) => fileCount(info, t) > 0);
+
+function FileStatus({ label, icon, present, count }) {
   return (
     <div className={`flex items-center gap-2 text-xs ${present ? 'text-emerald-600' : 'text-gray-300'}`}>
       <span>{icon}</span>
-      <span>{label}</span>
+      <span className="truncate">{label}</span>
       {present
-        ? <svg className="w-3 h-3 ml-auto" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+        ? count > 1
+          ? <span className="ml-auto font-semibold tabular-nums">{count}</span>
+          : <svg className="w-3 h-3 ml-auto" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
         : <span className="ml-auto text-gray-200">—</span>
       }
     </div>
@@ -15,7 +22,7 @@ function FileStatus({ label, icon, present }) {
 }
 
 function YearCard({ info, selected, onSelect, onEdit }) {
-  const canOpen = info.hasBank || info.hasCredit;
+  const canOpen = hasAnyFiles(info);
 
   return (
     <div
@@ -47,9 +54,16 @@ function YearCard({ info, selected, onSelect, onEdit }) {
 
       {/* File presence */}
       <div className="space-y-1.5">
-        <FileStatus label="Bank"          icon="🏦" present={info.hasBank} />
-        <FileStatus label="Credit Card"   icon="💳" present={info.hasCredit} />
-        <FileStatus label="Mappings"      icon="🔀" present={info.hasMappings} />
+        {SOURCES.map((s) => (
+          <FileStatus
+            key={s.type}
+            label={s.label}
+            icon={s.icon}
+            present={fileCount(info, s.type) > 0}
+            count={fileCount(info, s.type)}
+          />
+        ))}
+        <FileStatus label="Mappings" icon="🔀" present={info.hasMappings} />
       </div>
 
       {/* No-files hint */}
@@ -150,7 +164,7 @@ export default function YearSelector({ onSelectYear }) {
   };
 
   const selectedInfo = years.find((y) => y.year === selected);
-  const canOpen = selectedInfo && (selectedInfo.hasBank || selectedInfo.hasCredit);
+  const canOpen = !!selectedInfo && hasAnyFiles(selectedInfo);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex flex-col items-center justify-center p-8">

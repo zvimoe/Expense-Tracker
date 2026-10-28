@@ -2,18 +2,59 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import YearSelector from './components/YearSelector.jsx';
 import VendorTable from './components/VendorTable.jsx';
 import CategorySummary from './components/CategorySummary.jsx';
+import MonthlyBoard from './components/MonthlyBoard.jsx';
 import TransactionTable from './components/TransactionTable.jsx';
 import VendorMappingEditor from './components/VendorMappingEditor.jsx';
 import YearFilesEditor from './components/YearFilesEditor.jsx';
 import TransactionOverrideEditor from './components/TransactionOverrideEditor.jsx';
-import { parseCSV, mergeAndSort } from './utils/parseCSV.js';
+import { parseCSV, mergeSourceFiles } from './utils/parseCSV.js';
+import { SOURCE_TYPES } from './utils/sources.js';
 import { applyMappings, applyTransactionOverrides } from './utils/vendorMapping.js';
 
 const TABS = [
   { id: 0, label: 'Overview' },
-  { id: 1, label: 'Vendors' },
-  { id: 2, label: 'All Transactions' },
+  { id: 1, label: 'Monthly' },
+  { id: 2, label: 'Vendors' },
+  { id: 3, label: 'All Transactions' },
 ];
+
+const TAB_TRANSACTIONS = 3;
+
+/**
+ * Load one year from disk and return it fully resolved: parsed, merged, with
+ * that year's own mapping rules and transaction overrides applied. Used for
+ * the comparison year, which is read-only and so needs no state of its own.
+ */
+async function loadResolvedYear(year) {
+  const { sourceFiles, mappings, transactionOverrides } = await window.electronAPI.loadYear(year);
+  const { transactions } = await parseYearFiles(sourceFiles);
+
+  return applyTransactionOverrides(
+    applyMappings(transactions, mappings || []),
+    transactionOverrides || []
+  );
+}
+
+/**
+ * Parse every imported file of every source and merge them into one list.
+ * A source can hold many files — one per account, or one per month — so each
+ * is parsed on its own and duplicates between overlapping exports are dropped.
+ */
+async function parseYearFiles(sourceFiles) {
+  const files = [];
+
+  for (const type of SOURCE_TYPES) {
+    for (const file of sourceFiles?.[type] ?? []) {
+      if (!file.content) continue;
+      files.push({
+        name:         `${type}/${file.name}`,
+        transactions: await parseCSV(file.content, type),
+      });
+    }
+  }
+
+  return mergeSourceFiles(files);
+}
 
 export default function App() {
   const [selectedYear,     setSelectedYear]     = useState(null);
@@ -28,6 +69,12 @@ export default function App() {
   const [yearInfo,         setYearInfo]         = useState(null);
   const [loadError,        setLoadError]        = useState(null);
   const [loadingYear,      setLoadingYear]      = useState(false);
+  const [priorTransactions, setPriorTransactions] = useState(null);
+  const [drilldownFilters,  setDrilldownFilters]  = useState(null);
+  // How the year's files came together: file count, rows kept, duplicates dropped
+  const [mergeInfo,         setMergeInfo]         = useState(null);
+  // Set when a background save fails, so it is never lost silently
+  const [saveError,         setSaveError]         = useState(null);
 
   const mappingsInitialized = useRef(false);
   const overridesInitialized = useRef(false);
@@ -44,13 +91,17 @@ export default function App() {
   useEffect(() => {
     if (!selectedYear) return;
     if (!mappingsInitialized.current) { mappingsInitialized.current = true; return; }
-    window.electronAPI.saveMappings(selectedYear, mappings).catch(() => {});
+    window.electronAPI.saveMappings(selectedYear, mappings)
+      .then(() => setSaveError(null))
+      .catch((err) => setSaveError(`Could not save your category rules: ${err.message}`));
   }, [mappings, selectedYear]);
 
   useEffect(() => {
     if (!selectedYear) return;
     if (!overridesInitialized.current) { overridesInitialized.current = true; return; }
-    window.electronAPI.saveTransactionOverrides(selectedYear, transactionOverrides).catch(() => {});
+    window.electronAPI.saveTransactionOverrides(selectedYear, transactionOverrides)
+      .then(() => setSaveError(null))
+      .catch((err) => setSaveError(`Could not save your transaction changes: ${err.message}`));
   }, [transactionOverrides, selectedYear]);
 
   // Load a year's data from disk
@@ -62,19 +113,17 @@ export default function App() {
 
     try {
       const {
-        bankContent, creditContent,
-        ilBankContent, ilCreditContent,
+        sourceFiles,
         mappings: savedMappings,
         transactionOverrides: savedTransactionOverrides,
       } = await window.electronAPI.loadYear(year);
 
-      const [bankTxns, creditTxns, ilBankTxns, ilCreditTxns] = await Promise.all([
-        bankContent     ? parseCSV(bankContent,     'bank')      : [],
-        creditContent   ? parseCSV(creditContent,   'credit')    : [],
-        ilBankContent   ? parseCSV(ilBankContent,   'il-bank')   : [],
-        ilCreditContent ? parseCSV(ilCreditContent, 'il-credit') : [],
-      ]);
-      const merged = mergeAndSort(bankTxns, creditTxns, ilBankTxns, ilCreditTxns);
+      const { transactions: merged, duplicates } = await parseYearFiles(sourceFiles);
+      setMergeInfo({
+        files: SOURCE_TYPES.reduce((n, t) => n + (sourceFiles?.[t]?.length ?? 0), 0),
+        transactions: merged.length,
+        duplicates,
+      });
 
       // Refresh year info for the files editor
       const list = await window.electronAPI.listYears();
@@ -85,6 +134,20 @@ export default function App() {
       setMappings(savedMappings || []);
       setTransactionOverrides(savedTransactionOverrides || []);
       setActiveTab(0);
+      setDrilldownFilters(null);
+
+      // Best-effort: load the previous year for the Monthly comparison.
+      // Its absence is normal, so a failure here must not fail the whole load.
+      const prior = String(Number(year) - 1);
+      if (list.some((y) => y.year === prior)) {
+        try {
+          setPriorTransactions(await loadResolvedYear(prior));
+        } catch {
+          setPriorTransactions(null);
+        }
+      } else {
+        setPriorTransactions(null);
+      }
     } catch (err) {
       setLoadError(err.message);
     } finally {
@@ -97,11 +160,20 @@ export default function App() {
     setRawTransactions(null);
     setMappings([]);
     setTransactionOverrides([]);
+    setPriorTransactions(null);
+    setDrilldownFilters(null);
     setShowTransactionOverrides(false);
     setTransactionOverrideTarget(null);
     setLoadError(null);
     mappingsInitialized.current = false;
     overridesInitialized.current = false;
+  };
+
+  // Jump from the Monthly board to the filtered transaction list.
+  // A new object identity each time is what signals the table to re-apply.
+  const handleDrilldown = (filters) => {
+    setDrilldownFilters({ ...filters });
+    setActiveTab(TAB_TRANSACTIONS);
   };
 
   const handleOpenTransactionOverrides = () => {
@@ -146,6 +218,14 @@ export default function App() {
   // ── Dashboard ────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
+
+      {/* A failed save must never pass unnoticed — this work is typed by hand */}
+      {saveError && (
+        <div className="bg-red-600 text-white text-sm px-6 py-2 flex items-center justify-between flex-shrink-0">
+          <span>⚠ {saveError}</span>
+          <button onClick={() => setSaveError(null)} className="underline text-xs">Dismiss</button>
+        </div>
+      )}
 
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
@@ -255,19 +335,29 @@ export default function App() {
           />
         )}
         {activeTab === 1 && (
+          <MonthlyBoard
+            transactions={transactions}
+            priorTransactions={priorTransactions}
+            year={selectedYear}
+            priorYear={String(Number(selectedYear) - 1)}
+            onDrilldown={handleDrilldown}
+          />
+        )}
+        {activeTab === 2 && (
           <VendorTable
             transactions={transactions}
             mappings={mappings}
             onMappingsChange={setMappings}
           />
         )}
-        {activeTab === 2 && (
+        {activeTab === TAB_TRANSACTIONS && (
           <TransactionTable
             transactions={transactions}
             mappings={mappings}
             onMappingsChange={setMappings}
             transactionOverrides={transactionOverrides}
             onTransactionOverridesChange={setTransactionOverrides}
+            incomingFilters={drilldownFilters}
           />
         )}
       </main>
@@ -301,6 +391,7 @@ export default function App() {
           yearInfo={yearInfo}
           onClose={() => setShowFilesEditor(false)}
           onUpdated={handleFilesUpdated}
+          mergeInfo={mergeInfo}
         />
       )}
     </div>

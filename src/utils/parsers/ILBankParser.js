@@ -15,11 +15,15 @@ import { ilsToUsd } from '../exchangeRates.js';
 // If the bank uses a single "סכום" column instead of separate debit/credit,
 // that is handled via the single-amount strategy.
 
-const DATE_ALIASES   = ['תאריך', 'תאריך ערך', 'תאריך פעולה', 'תאריך עסקה'];
-const VENDOR_ALIASES = ['תיאור פעולה', 'פירוט', 'תיאור', 'תאור פעולה', 'שם', 'בנק'];
-const DEBIT_ALIASES  = ['חובה', 'חיוב', 'משיכה'];
-const CREDIT_ALIASES = ['זכות', 'הפקדה', 'הכנסה'];
-const AMOUNT_ALIASES = ['סכום', 'סכום הפעולה'];
+// Some Israeli banks (FIBI, Discount) export the same sheet with English
+// headers — "Date / Transaction / Debit / Credit" — so both are listed.
+// English aliases come last: exact matches are tried before substrings, so
+// "Transaction" still beats "Transaction date" for the vendor column.
+const DATE_ALIASES   = ['תאריך', 'תאריך ערך', 'תאריך פעולה', 'תאריך עסקה', 'value date', 'transaction date', 'date'];
+const VENDOR_ALIASES = ['תיאור פעולה', 'פירוט', 'תיאור', 'תאור פעולה', 'שם', 'בנק', 'transaction', 'description', 'details', 'narrative'];
+const DEBIT_ALIASES  = ['חובה', 'חיוב', 'משיכה', 'debit', 'withdrawal'];
+const CREDIT_ALIASES = ['זכות', 'הפקדה', 'הכנסה', 'deposit', 'credit'];
+const AMOUNT_ALIASES = ['סכום', 'סכום הפעולה', 'amount'];
 
 /**
  * Parser for Israeli bank-account CSV exports (Hebrew column names).
@@ -48,7 +52,10 @@ export class ILBankParser extends BaseParser {
     const rawDate = cols.date ? String(row[cols.date] ?? '').trim() : '';
     const date    = this.convertDdMmToMmDd(rawDate);
 
-    const vendor = this.cleanText(cols.vendor ? row[cols.vendor] : 'Unknown') || 'Unknown';
+    // Fee rows in some exports carry no description at all — FIBI writes a
+    // literal 0 in the Transaction column — so give them a mappable name.
+    const rawVendor = this.cleanText(cols.vendor ? row[cols.vendor] : '');
+    const vendor    = (!rawVendor || rawVendor === '0') ? 'Bank transaction' : rawVendor;
 
     // Amount resolution (same strategies as USParser but for ILS)
     let amount = 0;
