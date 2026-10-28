@@ -57,13 +57,20 @@ export default function YearFilesEditor({ year, yearInfo, onClose, onUpdated, me
       const result = await window.electronAPI.addSourceFiles(year, type);
       if (!result) { setLoading(null); return; }   // picker cancelled
 
-      const { imported, errors: failed } = result;
+      const { imported, errors: failed, filedElsewhere } = result;
 
       if (imported.length) {
-        const rows = imported.reduce((n, f) => n + (f.rows || 0), 0);
+        const rows  = imported.reduce((n, f) => n + (f.rows || 0), 0);
+        // Rows dated to another year are filed there instead — a January card
+        // statement carries December's purchases.
+        const other = Object.entries(filedElsewhere ?? {})
+          .map(([y, n]) => `${n} row${n === 1 ? '' : 's'} filed under ${y}`)
+          .join(', ');
+
         setResults((p) => ({
           ...p,
-          [type]: `Added ${imported.length} file${imported.length === 1 ? '' : 's'} · ${rows.toLocaleString()} rows`,
+          [type]: `Added ${imported.length} file${imported.length === 1 ? '' : 's'} · ${rows.toLocaleString()} rows`
+            + (other ? ` · ${other}` : ''),
         }));
       }
       if (failed.length) {

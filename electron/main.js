@@ -3,7 +3,7 @@ const path = require('path');
 const fs   = require('fs');
 
 // File reading / spreadsheet conversion lives in sheetImport.js
-const { fileToCSV, readCSVSmart } = require('./sheetImport.js');
+const { fileToCSV, readCSVSmart, splitCSVByYear, serializeCSVRows } = require('./sheetImport.js');
 
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 
@@ -333,20 +333,56 @@ ipcMain.handle('data:addSourceFiles', async (_, { year, type }) => {
 
   const imported = [];
   const errors   = [];
+  const filedElsewhere = {};   // year -> rows filed under a different year
 
   for (const src of filePaths) {
     const original = path.basename(src);
+    const base     = safeName(original.replace(/\.(xls|xlsx|xlsm|csv)$/i, ''));
+    const stem     = `${Date.now()}_${imported.length}__${base}`;
+
     try {
       const { csv, rows, skipped } = fileToCSV(src);
-      const stored = `${Date.now()}_${imported.length}__${safeName(original.replace(/\.(xls|xlsx|xlsm|csv)$/i, ''))}.csv`;
-      fs.writeFileSync(path.join(dir, stored), csv, 'utf-8');
-      imported.push({ id: stored, name: original, rows, skipped, content: csv });
+      const split = splitCSVByYear(csv);
+
+      // A statement that covers one calendar year only — store it as-is.
+      if (!split || split.byYear.size <= 1) {
+        const stored = `${stem}.csv`;
+        fs.writeFileSync(path.join(dir, stored), csv, 'utf-8');
+        imported.push({ id: stored, name: original, rows, skipped, content: csv });
+        continue;
+      }
+
+      // Rows spread across years: each year's rows go to that year's folder.
+      // Undated rows stay with the year the user was importing into.
+      let ownRows = 0;
+      for (const [rowYear, yearRows] of split.byYear) {
+        const isTarget = String(rowYear) === String(year);
+        const body     = isTarget ? [...yearRows, ...split.undated] : yearRows;
+        const target   = sourceDir(rowYear, type);
+        ensureDir(target);
+
+        const stored  = `${stem} (${rowYear}).csv`;
+        const content = serializeCSVRows([split.headers, ...body]);
+        fs.writeFileSync(path.join(target, stored), content, 'utf-8');
+
+        if (isTarget) {
+          ownRows = body.length;
+          imported.push({ id: stored, name: original, rows: body.length, skipped, content });
+        } else {
+          filedElsewhere[rowYear] = (filedElsewhere[rowYear] || 0) + body.length;
+        }
+      }
+
+      // Every row belonged to another year — still report the file as imported.
+      if (!ownRows) {
+        imported.push({ id: null, name: original, rows: 0, skipped, content: null });
+      }
     } catch (err) {
       errors.push({ name: original, message: err.message });
     }
   }
 
-  return { imported, errors };
+  return { imported, errors, filedElsewhere };
 });
 
 /** Delete one imported file from a source. */

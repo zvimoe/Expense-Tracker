@@ -71,6 +71,9 @@ function serialToDate(n) {
   return `${d}/${m}/${dt.getUTCFullYear()}`;
 }
 
+/** Two-digit years are this century: Isracard writes 11.01.26 for 2026. */
+const expandYear = (y) => (String(y).length <= 2 ? 2000 + Number(y) : Number(y));
+
 /** Normalise any date representation to dd/mm/yyyy; '' when it isn't a date. */
 function toDate(val) {
   if (val === '' || val == null) return '';
@@ -83,7 +86,10 @@ function toDate(val) {
   if (typeof val === 'number') return val > 20000 && val < 80000 ? serialToDate(val) : '';
   const s = String(val).trim();
   if (!s) return '';
-  if (/^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/.test(s)) return s.replace(/[.-]/g, '/');
+  if (/^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/.test(s)) {
+    const [a, b, y] = s.split(/[/.-]/);
+    return `${a.padStart(2, '0')}/${b.padStart(2, '0')}/${expandYear(y)}`;
+  }
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
     const [y, m, d] = s.slice(0, 10).split('-');
     return `${d}/${m}/${y}`;
@@ -171,4 +177,89 @@ function fileToCSV(filePath) {
   return { csv, rows: Math.max(0, lines - 1), skipped: 0, headers: [] };
 }
 
-module.exports = { fileToCSV, spreadsheetToCSV, readCSVSmart, SPREADSHEET_RE };
+// ── Filing an import across years ─────────────────────────────────────────
+// A card statement covers a charge period, not a calendar year: the January
+// file lists purchases made the previous December. Rows are split by the year
+// of their own date so each lands in the right year folder.
+
+/** Minimal RFC 4180 reader — handles quoted fields containing commas. */
+function parseCSVRows(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else quoted = false;
+      } else field += c;
+    } else if (c === '"') {
+      quoted = true;
+    } else if (c === ',') {
+      row.push(field); field = '';
+    } else if (c === '\n') {
+      row.push(field); rows.push(row); row = []; field = '';
+    } else if (c !== '\r') {
+      field += c;
+    }
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+
+  return rows;
+}
+
+const serializeCSVRows = (rows) => rows.map((r) => r.map(csvEscape).join(',')).join('\r\n');
+
+/** The calendar year of a date cell, or null when it isn't a date. */
+function yearOf(value) {
+  const s = String(value ?? '').trim();
+  const dmy = s.match(/^(\d{1,4})[/.-](\d{1,2})[/.-](\d{2,4})$/);
+  if (dmy) return expandYear(dmy[3]);
+  const iso = s.match(/^(\d{4})-\d{2}-\d{2}/);
+  return iso ? Number(iso[1]) : null;
+}
+
+/**
+ * Group a CSV's rows by the year of their date column.
+ * Returns null when no date column can be identified — the caller then keeps
+ * the file whole rather than guessing.
+ */
+function splitCSVByYear(csvText) {
+  const rows = parseCSVRows(csvText);
+  if (rows.length < 2) return null;
+
+  const headers = rows[0];
+  const body    = rows.slice(1).filter((r) => r.some((c) => String(c).trim() !== ''));
+  if (!body.length) return null;
+
+  // Prefer a column that is named like a date; the first one wins, which is
+  // the purchase date rather than the later charge date.
+  let idx = headers.findIndex((h) => isDateHeader(h));
+
+  if (idx === -1) {
+    let best = 0;
+    headers.forEach((_, i) => {
+      const hits = body.filter((r) => yearOf(r[i]) !== null).length;
+      if (hits > best) { best = hits; idx = i; }
+    });
+    if (best < body.length * 0.5) return null;   // no column reads as dates
+  }
+
+  const byYear  = new Map();
+  const undated = [];
+
+  for (const r of body) {
+    const y = yearOf(r[idx]);
+    if (y === null) { undated.push(r); continue; }
+    if (!byYear.has(y)) byYear.set(y, []);
+    byYear.get(y).push(r);
+  }
+
+  return { headers, byYear, undated, total: body.length, dateColumn: headers[idx] };
+}
+
+module.exports = {
+  fileToCSV, spreadsheetToCSV, readCSVSmart, SPREADSHEET_RE,
+  splitCSVByYear, serializeCSVRows, parseCSVRows,
+};
